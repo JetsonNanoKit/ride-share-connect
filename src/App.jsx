@@ -1,6 +1,5 @@
-import React, { useMemo, useState } from 'react';
-
-const STORAGE_KEY = 'share-car-state-v1';
+import React, { useEffect, useMemo, useState } from 'react';
+import { supabase } from './supabaseClient';
 
 const emptyPost = {
   type: 'offer',
@@ -15,105 +14,91 @@ const emptyPost = {
   description: '',
 };
 
-const sampleState = {
-  currentUserId: null,
-  users: [
-    {
-      id: 'u-demo-driver',
-      name: '林师傅',
-      phone: '13800000001',
-      password: '123456',
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'u-demo-rider',
-      name: '小周',
-      phone: '13800000002',
-      password: '123456',
-      createdAt: new Date().toISOString(),
-    },
-  ],
-  posts: [
-    {
-      id: 'p-demo-offer',
-      type: 'offer',
-      title: '明早南山到福田，剩 2 座',
-      from: '深圳南山',
-      to: '深圳福田',
-      date: '2026-06-23',
-      time: '08:10',
-      seats: 2,
-      price: '25',
-      phone: '13800000001',
-      description: '走滨海大道，可在科技园、车公庙附近上车。',
-      authorId: 'u-demo-driver',
-      createdAt: new Date().toISOString(),
-    },
-    {
-      id: 'p-demo-request',
-      type: 'request',
-      title: '今晚找车：广州南到天河',
-      from: '广州南站',
-      to: '广州天河',
-      date: '2026-06-22',
-      time: '21:00',
-      seats: 1,
-      price: '可议',
-      phone: '13800000002',
-      description: '一人一个行李箱，希望能拼到顺路车。',
-      authorId: 'u-demo-rider',
-      createdAt: new Date().toISOString(),
-    },
-  ],
-  comments: [
-    {
-      id: 'c-demo',
-      postId: 'p-demo-offer',
-      authorId: 'u-demo-rider',
-      content: '可以在高新园地铁站附近上车吗？',
-      createdAt: new Date().toISOString(),
-    },
-  ],
-  ratings: [
-    {
-      id: 'r-demo',
-      postId: 'p-demo-offer',
-      authorId: 'u-demo-rider',
-      score: 5,
-      content: '沟通清楚，路线也很准时。',
-      createdAt: new Date().toISOString(),
-    },
-  ],
+const emptyState = {
+  users: [],
+  posts: [],
+  comments: [],
+  ratings: [],
 };
 
-function loadState() {
-  try {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    return normalizeState(saved ? JSON.parse(saved) : sampleState);
-  } catch {
-    return normalizeState(sampleState);
-  }
+function phoneToEmail(phone) {
+  const normalized = phone.replace(/\D/g, '');
+  return `${normalized}@runlongyuan-users.com`;
 }
 
-function saveState(nextState) {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(nextState));
-  return nextState;
-}
-
-function createId(prefix) {
-  return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-}
-
-function normalizeState(value) {
+function mapProfile(row) {
   return {
-    ...sampleState,
-    ...(value && typeof value === 'object' ? value : {}),
-    currentUserId: value?.currentUserId ?? null,
-    users: Array.isArray(value?.users) ? value.users : sampleState.users,
-    posts: Array.isArray(value?.posts) ? value.posts : sampleState.posts,
-    comments: Array.isArray(value?.comments) ? value.comments : [],
-    ratings: Array.isArray(value?.ratings) ? value.ratings : [],
+    id: row.id,
+    name: row.name,
+    phone: row.phone,
+    createdAt: row.created_at,
   };
+}
+
+function mapPost(row) {
+  return {
+    id: row.id,
+    type: row.type,
+    title: row.title,
+    from: row.origin,
+    to: row.destination,
+    date: row.date,
+    time: String(row.time || '').slice(0, 5),
+    seats: row.seats,
+    price: row.price || '',
+    phone: row.phone,
+    description: row.description || '',
+    authorId: row.author_id,
+    createdAt: row.created_at,
+  };
+}
+
+function mapComment(row) {
+  return {
+    id: row.id,
+    postId: row.post_id,
+    authorId: row.author_id,
+    content: row.content,
+    createdAt: row.created_at,
+  };
+}
+
+function mapRating(row) {
+  return {
+    id: row.id,
+    postId: row.post_id,
+    authorId: row.author_id,
+    score: row.score,
+    content: row.content || '',
+    createdAt: row.created_at,
+  };
+}
+
+async function loadSharedState() {
+  const [profilesResult, postsResult, commentsResult, ratingsResult] = await Promise.all([
+    supabase.from('profiles').select('*').order('created_at', { ascending: true }),
+    supabase.from('posts').select('*').order('created_at', { ascending: false }),
+    supabase.from('comments').select('*').order('created_at', { ascending: true }),
+    supabase.from('ratings').select('*').order('created_at', { ascending: true }),
+  ]);
+
+  for (const result of [profilesResult, postsResult, commentsResult, ratingsResult]) {
+    if (result.error) throw result.error;
+  }
+
+  return {
+    users: profilesResult.data.map(mapProfile),
+    posts: postsResult.data.map(mapPost),
+    comments: commentsResult.data.map(mapComment),
+    ratings: ratingsResult.data.map(mapRating),
+  };
+}
+
+async function loadCurrentUser(userId) {
+  if (!userId) return null;
+  const { data, error } = await supabase.from('profiles').select('*').eq('id', userId).single();
+  if (error) throw error;
+  return mapProfile(data);
 }
 
 function formatTime(value) {
@@ -135,17 +120,60 @@ function typeLabel(type) {
 }
 
 function App() {
-  const [state, setState] = useState(loadState);
+  const [state, setState] = useState(emptyState);
+  const [currentUser, setCurrentUser] = useState(null);
   const [authMode, setAuthMode] = useState('login');
   const [authForm, setAuthForm] = useState({ name: '', phone: '', password: '' });
   const [postForm, setPostForm] = useState(emptyPost);
   const [filters, setFilters] = useState({ type: 'all', keyword: '' });
-  const [activePostId, setActivePostId] = useState(state.posts?.[0]?.id ?? null);
+  const [activePostId, setActivePostId] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [ratingForm, setRatingForm] = useState({ score: 5, content: '' });
   const [notice, setNotice] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
 
-  const currentUser = state.users.find((user) => user.id === state.currentUserId) ?? null;
+  useEffect(() => {
+    initialize();
+
+    const { data } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      try {
+        setCurrentUser(session?.user ? await loadCurrentUser(session.user.id) : null);
+      } catch {
+        setCurrentUser(null);
+      }
+    });
+
+    return () => data.subscription.unsubscribe();
+  }, []);
+
+  async function initialize() {
+    setIsLoading(true);
+    try {
+      const [{ data: sessionData }, sharedState] = await Promise.all([
+        supabase.auth.getSession(),
+        loadSharedState(),
+      ]);
+      setState(sharedState);
+      setActivePostId((previous) => previous || sharedState.posts[0]?.id || null);
+      setCurrentUser(sessionData.session?.user ? await loadCurrentUser(sessionData.session.user.id) : null);
+    } catch (error) {
+      showNotice(error.message);
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function refreshState(preferredPostId) {
+    const sharedState = await loadSharedState();
+    setState(sharedState);
+    setActivePostId((previous) => preferredPostId || previous || sharedState.posts[0]?.id || null);
+  }
+
+  function showNotice(message) {
+    setNotice(message);
+    window.setTimeout(() => setNotice(''), 3000);
+  }
+
   const activePost = state.posts.find((post) => post.id === activePostId) ?? state.posts[0] ?? null;
 
   const usersById = useMemo(() => {
@@ -162,8 +190,7 @@ function App() {
           .join(' ')
           .toLowerCase()
           .includes(keyword);
-      })
-      .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      });
   }, [filters, state.posts]);
 
   const activeComments = state.comments.filter((comment) => comment.postId === activePost?.id);
@@ -172,16 +199,7 @@ function App() {
     ? (activeRatings.reduce((total, rating) => total + Number(rating.score), 0) / activeRatings.length).toFixed(1)
     : '暂无';
 
-  function updateState(mutator) {
-    setState((previous) => saveState(mutator(previous)));
-  }
-
-  function showNotice(message) {
-    setNotice(message);
-    window.setTimeout(() => setNotice(''), 2400);
-  }
-
-  function handleAuthSubmit(event) {
+  async function handleAuthSubmit(event) {
     event.preventDefault();
     const name = authForm.name.trim();
     const phone = authForm.phone.trim();
@@ -192,74 +210,89 @@ function App() {
       return;
     }
 
-    if (authMode === 'login') {
-      const user = state.users.find((item) => item.phone === phone && item.password === password);
-      if (!user) {
-        showNotice('手机号或密码不正确');
-        return;
+    try {
+      if (authMode === 'login') {
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: phoneToEmail(phone),
+          password,
+        });
+        if (error) throw error;
+        const profile = await loadCurrentUser(data.user.id);
+        setCurrentUser(profile);
+        showNotice(`欢迎回来，${profile.name}`);
+      } else {
+        const { data, error } = await supabase.auth.signUp({
+          email: phoneToEmail(phone),
+          password,
+          options: { data: { name, phone } },
+        });
+        if (error) throw error;
+        if (!data.session) {
+          throw new Error('注册成功但未自动登录。请在 Supabase Auth 设置里关闭邮箱确认后再试。');
+        }
+
+        const { error: profileError } = await supabase.from('profiles').upsert({
+          id: data.user.id,
+          name,
+          phone,
+        });
+        if (profileError) throw profileError;
+
+        const profile = await loadCurrentUser(data.user.id);
+        setCurrentUser(profile);
+        setAuthForm({ name: '', phone: '', password: '' });
+        await refreshState();
+        showNotice('注册成功，已为你登录');
       }
-      updateState((previous) => ({ ...previous, currentUserId: user.id }));
-      showNotice(`欢迎回来，${user.name}`);
-      return;
+    } catch (error) {
+      showNotice(error.message);
     }
-
-    if (state.users.some((item) => item.phone === phone)) {
-      showNotice('该手机号已注册，请直接登录');
-      return;
-    }
-
-    const user = {
-      id: createId('u'),
-      name,
-      phone,
-      password,
-      createdAt: new Date().toISOString(),
-    };
-    updateState((previous) => ({
-      ...previous,
-      currentUserId: user.id,
-      users: [...previous.users, user],
-    }));
-    setAuthForm({ name: '', phone: '', password: '' });
-    showNotice('注册成功，已为你登录');
   }
 
-  function handleLogout() {
-    updateState((previous) => ({ ...previous, currentUserId: null }));
+  async function handleLogout() {
+    await supabase.auth.signOut();
+    setCurrentUser(null);
     showNotice('已退出登录');
   }
 
-  function handlePostSubmit(event) {
+  async function handlePostSubmit(event) {
     event.preventDefault();
     if (!currentUser) {
       showNotice('请先登录后再发帖');
       return;
     }
 
-    const requiredFields = ['title', 'from', 'to', 'date', 'time', 'phone'];
-    if (requiredFields.some((field) => !String(postForm[field]).trim())) {
+    const payload = {
+      type: postForm.type,
+      title: postForm.title.trim(),
+      origin: postForm.from.trim(),
+      destination: postForm.to.trim(),
+      date: postForm.date,
+      time: postForm.time,
+      seats: Math.max(1, Number(postForm.seats) || 1),
+      price: postForm.price.trim(),
+      phone: postForm.phone.trim(),
+      description: postForm.description.trim(),
+      author_id: currentUser.id,
+    };
+
+    if (!payload.title || !payload.origin || !payload.destination || !payload.date || !payload.time || !payload.phone) {
       showNotice('请补充标题、路线、时间和联系方式');
       return;
     }
 
-    const post = {
-      ...postForm,
-      id: createId('p'),
-      seats: Number(postForm.seats) || 1,
-      authorId: currentUser.id,
-      createdAt: new Date().toISOString(),
-    };
-
-    updateState((previous) => ({
-      ...previous,
-      posts: [post, ...previous.posts],
-    }));
-    setPostForm(emptyPost);
-    setActivePostId(post.id);
-    showNotice('发布成功');
+    try {
+      const { data, error } = await supabase.from('posts').insert(payload).select('*').single();
+      if (error) throw error;
+      setPostForm(emptyPost);
+      await refreshState(data.id);
+      showNotice('发布成功，所有访问者现在都能看到');
+    } catch (error) {
+      showNotice(error.message);
+    }
   }
 
-  function handleCommentSubmit(event) {
+  async function handleCommentSubmit(event) {
     event.preventDefault();
     if (!currentUser) {
       showNotice('请先登录后再评论');
@@ -270,22 +303,22 @@ function App() {
       return;
     }
 
-    const comment = {
-      id: createId('c'),
-      postId: activePost.id,
-      authorId: currentUser.id,
-      content: commentText.trim(),
-      createdAt: new Date().toISOString(),
-    };
-    updateState((previous) => ({
-      ...previous,
-      comments: [...previous.comments, comment],
-    }));
-    setCommentText('');
-    showNotice('评论已发布');
+    try {
+      const { error } = await supabase.from('comments').insert({
+        post_id: activePost.id,
+        author_id: currentUser.id,
+        content: commentText.trim(),
+      });
+      if (error) throw error;
+      setCommentText('');
+      await refreshState(activePost.id);
+      showNotice('评论已发布');
+    } catch (error) {
+      showNotice(error.message);
+    }
   }
 
-  function handleRatingSubmit(event) {
+  async function handleRatingSubmit(event) {
     event.preventDefault();
     if (!currentUser) {
       showNotice('请先登录后再评价');
@@ -293,21 +326,20 @@ function App() {
     }
     if (!activePost) return;
 
-    const rating = {
-      id: createId('r'),
-      postId: activePost.id,
-      authorId: currentUser.id,
-      score: Number(ratingForm.score),
-      content: ratingForm.content.trim(),
-      createdAt: new Date().toISOString(),
-    };
-
-    updateState((previous) => ({
-      ...previous,
-      ratings: [...previous.ratings, rating],
-    }));
-    setRatingForm({ score: 5, content: '' });
-    showNotice('评价已提交');
+    try {
+      const { error } = await supabase.from('ratings').insert({
+        post_id: activePost.id,
+        author_id: currentUser.id,
+        score: Number(ratingForm.score),
+        content: ratingForm.content.trim(),
+      });
+      if (error) throw error;
+      setRatingForm({ score: 5, content: '' });
+      await refreshState(activePost.id);
+      showNotice('评价已提交');
+    } catch (error) {
+      showNotice(error.message);
+    }
   }
 
   return (
@@ -316,7 +348,7 @@ function App() {
         <nav className="topbar">
           <div className="brand">
             <span className="brandMark">拼</span>
-            <span>顺路拼车</span>
+            <span>润珑苑顺路拼车</span>
           </div>
           {currentUser ? (
             <div className="userBox">
@@ -330,10 +362,10 @@ function App() {
 
         <div className="heroGrid">
           <section>
-            <p className="eyebrow">社区互助拼车平台</p>
-            <h1>找顺路的人，也找合适的车</h1>
+            <p className="eyebrow">润珑苑小区互助拼车平台</p>
+            <h1>找顺路邻居，也找合适的车</h1>
             <p className="heroText">
-              支持司机发布空座，也支持乘客发布找车需求。注册登录后即可发帖、沟通、评论和评价。
+              数据已接入 Supabase，居民在不同设备上发布的拼车、评论和评价会共享展示。
             </p>
             <div className="stats">
               <strong>{state.posts.length}</strong>
@@ -367,7 +399,7 @@ function App() {
                   <input
                     value={authForm.name}
                     onChange={(event) => setAuthForm({ ...authForm, name: event.target.value })}
-                    placeholder="例如：张先生"
+                    placeholder="例如：3 栋张先生"
                   />
                 </label>
               )}
@@ -376,7 +408,7 @@ function App() {
                 <input
                   value={authForm.phone}
                   onChange={(event) => setAuthForm({ ...authForm, phone: event.target.value })}
-                  placeholder="演示账号：13800000001"
+                  placeholder="用于注册和登录"
                 />
               </label>
               <label>
@@ -385,7 +417,7 @@ function App() {
                   type="password"
                   value={authForm.password}
                   onChange={(event) => setAuthForm({ ...authForm, password: event.target.value })}
-                  placeholder="演示密码：123456"
+                  placeholder="至少 6 位"
                 />
               </label>
               <button className="primaryButton" type="submit">
@@ -426,7 +458,7 @@ function App() {
               <input
                 value={postForm.title}
                 onChange={(event) => setPostForm({ ...postForm, title: event.target.value })}
-                placeholder="例如：周五晚杭州到上海"
+                placeholder="例如：明早润珑苑到科技园"
               />
             </label>
             <div className="twoColumns">
@@ -435,7 +467,7 @@ function App() {
                 <input
                   value={postForm.from}
                   onChange={(event) => setPostForm({ ...postForm, from: event.target.value })}
-                  placeholder="城市/地点"
+                  placeholder="润珑苑/地铁站/商圈"
                 />
               </label>
               <label>
@@ -529,7 +561,8 @@ function App() {
           </div>
 
           <div className="postList">
-            {filteredPosts.map((post) => (
+            {isLoading && <div className="card empty">正在加载共享数据...</div>}
+            {!isLoading && filteredPosts.map((post) => (
               <article
                 key={post.id}
                 className={`card postItem ${activePost?.id === post.id ? 'focused' : ''}`}
@@ -546,7 +579,7 @@ function App() {
                 </p>
               </article>
             ))}
-            {!filteredPosts.length && (
+            {!isLoading && !filteredPosts.length && (
               <div className="card empty">没有找到匹配的拼车帖</div>
             )}
           </div>

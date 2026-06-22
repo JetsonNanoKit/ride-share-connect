@@ -6,7 +6,7 @@
 
 `ride-share-connect` 是一个轻量级社区拼车平台，适合润珑苑小区居民在通勤、接送站、周末出行等场景下互相匹配顺路需求。
 
-当前版本是纯前端 MVP，主要用于快速演示和验证需求。
+当前版本已接入 Supabase，适合部署到 Netlify 后给小区内部试运行。
 
 ## 功能
 
@@ -17,6 +17,22 @@
 - 查看帖子详情、联系方式和路线信息
 - 对帖子发表评论
 - 对拼车体验进行评分和文字评价
+- 多人共享同一份后端数据
+
+## 技术栈
+
+- 前端：React + Vite
+- 后端与数据库：Supabase
+- 认证：Supabase Auth
+
+## Supabase 设置
+
+1. 在 Supabase 项目中打开 `SQL Editor`。
+2. 复制并执行 `supabase/schema.sql` 中的全部 SQL。
+3. 打开 `Authentication` -> `Providers` -> `Email`。
+4. 关闭 `Confirm email`，否则手机号注册后不会自动登录。
+
+本项目用手机号生成内部邮箱来接入 Supabase Auth，例如 `13800000000@runlongyuan-users.com`。用户界面仍然只展示手机号登录。
 
 ## 本地运行
 
@@ -24,6 +40,19 @@
 
 ```bash
 npm install
+```
+
+复制环境变量示例：
+
+```bash
+cp .env.example .env.local
+```
+
+然后在 `.env.local` 中填写：
+
+```text
+VITE_SUPABASE_URL=你的 Supabase Project URL
+VITE_SUPABASE_ANON_KEY=你的 Supabase anon public key
 ```
 
 启动开发服务：
@@ -38,42 +67,30 @@ npm run dev
 npm run build
 ```
 
-预览构建结果：
-
-```bash
-npm run preview
-```
-
-## 演示账号
-
-```text
-手机号：13800000001
-密码：123456
-
-手机号：13800000002
-密码：123456
-```
-
 ## 数据说明
 
-当前 Demo 使用浏览器 `localStorage` 保存数据。也就是说，每个访问者的数据只存在自己的浏览器里，不同用户之间不会真正共享发帖、评论和评价。
-
-如果要正式服务润珑苑小区，需要接入后端和数据库，例如 Supabase、Firebase 或自建 API 服务。
+当前版本使用 Supabase 保存共享数据。不同用户访问同一个 Netlify 站点时，会看到同一批发帖、评论和评价。
 
 ## 部署
 
-这是一个 Vite 静态前端项目，可以部署到 Vercel、Netlify 或其他静态托管平台。
+这是一个静态前端应用，可以直接部署到 Netlify。
 
 推荐配置：
 
 ```text
 Build command: npm run build
-Output directory: dist
+Publish directory: dist
+```
+
+在 Netlify 的 `Site configuration` -> `Environment variables` 中添加：
+
+```text
+VITE_SUPABASE_URL=你的 Supabase Project URL
+VITE_SUPABASE_ANON_KEY=你的 Supabase anon public key
 ```
 
 ## 后续可扩展方向
 
-- 接入真实后端和数据库，实现多人共享数据
 - 增加手机号验证码或微信登录
 - 增加小区住户认证
 - 增加出发时间提醒和帖子过期机制

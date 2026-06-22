@@ -7,7 +7,7 @@
     "preview": "vite preview --host 0.0.0.0"
   },
   "dependencies": {
-    "localtunnel": "^2.0.2",
+    "@supabase/supabase-js": "^2.87.1",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "vite": "^6.4.3"
