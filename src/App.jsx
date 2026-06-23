@@ -31,6 +31,7 @@ function mapProfile(row) {
     id: row.id,
     name: row.name,
     phone: row.phone,
+    isAdmin: Boolean(row.is_admin),
     createdAt: row.created_at,
   };
 }
@@ -119,13 +120,58 @@ function typeLabel(type) {
   return type === 'offer' ? '车找人' : '人找车';
 }
 
+function getTripDateTime(post) {
+  return new Date(`${post.date}T${post.time || '00:00'}`);
+}
+
+function startOfToday() {
+  const date = new Date();
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function addDays(date, days) {
+  const next = new Date(date);
+  next.setDate(next.getDate() + days);
+  return next;
+}
+
+function isExpiredPost(post) {
+  return getTripDateTime(post) < new Date();
+}
+
+function isInTimeRange(post, range) {
+  if (range === 'all') return true;
+
+  const tripTime = getTripDateTime(post);
+  const today = startOfToday();
+  const tomorrow = addDays(today, 1);
+  const dayAfterTomorrow = addDays(today, 2);
+  const nextWeek = addDays(today, 7);
+
+  if (range === 'active') {
+    return tripTime >= new Date();
+  }
+  if (range === 'today') {
+    return tripTime >= today && tripTime < tomorrow;
+  }
+  if (range === 'tomorrow') {
+    return tripTime >= tomorrow && tripTime < dayAfterTomorrow;
+  }
+  if (range === 'week') {
+    return tripTime >= today && tripTime < nextWeek;
+  }
+
+  return true;
+}
+
 function App() {
   const [state, setState] = useState(emptyState);
   const [currentUser, setCurrentUser] = useState(null);
   const [authMode, setAuthMode] = useState('login');
   const [authForm, setAuthForm] = useState({ name: '', phone: '', password: '' });
   const [postForm, setPostForm] = useState(emptyPost);
-  const [filters, setFilters] = useState({ type: 'all', keyword: '' });
+  const [filters, setFilters] = useState({ type: 'all', timeRange: 'active', keyword: '' });
   const [activePostId, setActivePostId] = useState(null);
   const [commentText, setCommentText] = useState('');
   const [ratingForm, setRatingForm] = useState({ score: 5, content: '' });
@@ -166,7 +212,12 @@ function App() {
   async function refreshState(preferredPostId) {
     const sharedState = await loadSharedState();
     setState(sharedState);
-    setActivePostId((previous) => preferredPostId || previous || sharedState.posts[0]?.id || null);
+    setActivePostId((previous) => {
+      if (preferredPostId !== undefined) {
+        return preferredPostId || sharedState.posts[0]?.id || null;
+      }
+      return previous || sharedState.posts[0]?.id || null;
+    });
   }
 
   function showNotice(message) {
@@ -184,6 +235,7 @@ function App() {
     const keyword = filters.keyword.trim().toLowerCase();
     return state.posts
       .filter((post) => filters.type === 'all' || post.type === filters.type)
+      .filter((post) => isInTimeRange(post, filters.timeRange))
       .filter((post) => {
         if (!keyword) return true;
         return [post.title, post.from, post.to, post.description]
@@ -198,6 +250,9 @@ function App() {
   const averageRating = activeRatings.length
     ? (activeRatings.reduce((total, rating) => total + Number(rating.score), 0) / activeRatings.length).toFixed(1)
     : '暂无';
+  const canDeleteActivePost = Boolean(
+    currentUser && activePost && (activePost.authorId === currentUser.id || currentUser.isAdmin),
+  );
 
   async function handleAuthSubmit(event) {
     event.preventDefault();
@@ -337,6 +392,22 @@ function App() {
       setRatingForm({ score: 5, content: '' });
       await refreshState(activePost.id);
       showNotice('评价已提交');
+    } catch (error) {
+      showNotice(error.message);
+    }
+  }
+
+  async function handleDeletePost() {
+    if (!activePost || !canDeleteActivePost) return;
+
+    const confirmed = window.confirm('确定删除这条拼车帖吗？评论和评价也会一起删除。');
+    if (!confirmed) return;
+
+    try {
+      const { error } = await supabase.from('posts').delete().eq('id', activePost.id);
+      if (error) throw error;
+      await refreshState(null);
+      showNotice('帖子已删除');
     } catch (error) {
       showNotice(error.message);
     }
@@ -534,6 +605,11 @@ function App() {
             </label>
             <button className="primaryButton" type="submit">发布拼车帖</button>
           </form>
+          <div className="safetyBox">
+            <h3>安全提示</h3>
+            <p>拼车前请自行核实对方身份、路线和车辆信息，建议在小区门口等公共区域上下车。</p>
+            <p>费用、上车点、行李和绕路情况请提前沟通清楚。平台仅提供信息发布与邻里互助撮合，不参与线下交易和行程履约。</p>
+          </div>
         </section>
 
         <section className="listColumn">
@@ -548,6 +624,23 @@ function App() {
                   key={value}
                   className={filters.type === value ? 'selected' : ''}
                   onClick={() => setFilters({ ...filters, type: value })}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div className="segmented timeSegmented">
+              {[
+                ['active', '未过期'],
+                ['today', '今天'],
+                ['tomorrow', '明天'],
+                ['week', '本周'],
+                ['all', '全部时间'],
+              ].map(([value, label]) => (
+                <button
+                  key={value}
+                  className={filters.timeRange === value ? 'selected' : ''}
+                  onClick={() => setFilters({ ...filters, timeRange: value })}
                 >
                   {label}
                 </button>
@@ -570,7 +663,7 @@ function App() {
               >
                 <div className="postMeta">
                   <span className={`pill ${post.type}`}>{typeLabel(post.type)}</span>
-                  <span>{post.date} {post.time}</span>
+                  <span>{post.date} {post.time}{isExpiredPost(post) ? ' · 已过期' : ''}</span>
                 </div>
                 <h3>{post.title}</h3>
                 <p className="route">{post.from} → {post.to}</p>
@@ -593,6 +686,11 @@ function App() {
                 <span>{formatTime(activePost.createdAt)} 发布</span>
               </div>
               <h2>{activePost.title}</h2>
+              {canDeleteActivePost && (
+                <button className="dangerButton" type="button" onClick={handleDeletePost}>
+                  删除帖子
+                </button>
+              )}
               <p className="route large">{activePost.from} → {activePost.to}</p>
               <div className="detailGrid">
                 <span>出发时间</span>

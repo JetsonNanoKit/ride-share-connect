@@ -303,6 +303,11 @@ select:focus {
   grid-template-columns: repeat(3, 1fr);
 }
 
+.toolbar .timeSegmented {
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(5, 1fr);
+}
+
 .twoColumns {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -373,6 +378,17 @@ select:focus {
   font-size: 22px;
 }
 
+.dangerButton {
+  width: fit-content;
+  border: 0;
+  border-radius: 14px;
+  margin: 0 0 14px;
+  padding: 10px 14px;
+  color: #fff;
+  background: #dc2626;
+  font-weight: 800;
+}
+
 .detailCard {
   position: sticky;
   top: 18px;
@@ -395,6 +411,26 @@ select:focus {
 .description {
   color: #334155;
   line-height: 1.7;
+}
+
+.safetyBox {
+  display: grid;
+  gap: 8px;
+  margin-top: 22px;
+  border-radius: 20px;
+  padding: 16px;
+  color: #7c2d12;
+  background: #fff7ed;
+}
+
+.safetyBox h3,
+.safetyBox p {
+  margin: 0;
+}
+
+.safetyBox p {
+  font-size: 14px;
+  line-height: 1.65;
 }
 
 .conversation {
@@ -476,6 +512,11 @@ select:focus {
   .inlineForm,
   .ratingForm {
     grid-template-columns: 1fr;
+  }
+
+  .toolbar .timeSegmented {
+    grid-template-columns: 1fr;
+    border-radius: 18px;
   }
 
   .card {
