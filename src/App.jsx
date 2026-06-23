@@ -363,7 +363,7 @@ function App() {
         <div className="heroGrid">
           <section>
             <p className="eyebrow">润珑苑小区互助拼车平台</p>
-            <h1>找顺路邻居，也找合适的车</h1>
+            <h1>找顺路的人，也找合适的车</h1>
             <p className="heroText">
               数据已接入 Supabase，居民在不同设备上发布的拼车、评论和评价会共享展示。
             </p>
